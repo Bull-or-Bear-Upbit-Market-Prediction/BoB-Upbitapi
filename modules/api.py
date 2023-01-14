@@ -6,6 +6,7 @@ import configparser
 import json
 import pandas as pd
 from tqdm import tqdm
+from ratelimit import limits, sleep_and_retry
 
 from time import sleep
 
@@ -50,10 +51,11 @@ class UpbitAPI:
             data = None
         return data
 
-
+    @sleep_and_retry
+    @limits(calls=5, period=1)
     def get_df(self, url, query, ohlcv=False):
         '''
-        요청헤더 생성하는 내부메소드
+        요청헤더 생성하고 실제 api 요청하는 내부메소드
         '''
         headers = {
             'accept': 'application/json',
@@ -62,13 +64,14 @@ class UpbitAPI:
         res = requests.get(url+query, headers=headers)
         assert res.status_code == 200, "requests fail"
 
-        df = self.to_df(res.text)
-
-        return self.get_ohlcv(df) if ohlcv else df
+        return self.to_df(res.text)
 
 
-    def get_ohlcv(self, df):
-        # 캔들 정보만 해당
+    def get_ohlcv_candle(self, df):
+        '''
+        캔들에 대한 ohlcv 만 뽑아오는 함수
+        티커의 경우 get_ticker에서 내부 구현
+        '''
         ohlcv = ["opening_price", "high_price", "low_price", "trade_price", "candle_acc_trade_price", "candle_acc_trade_volume"]
 
         return df[ohlcv]
@@ -89,6 +92,7 @@ class UpbitAPI:
         else:
             return df
 
+    
 
     def min_candle(self, unit=1, market="KRW-BTC", to="", count=10, ohlcv=True):
         '''
@@ -96,10 +100,19 @@ class UpbitAPI:
 
         https://docs.upbit.com/reference/%EB%B6%84minute-%EC%BA%94%EB%93%A4-1
         '''
+        # assert unit in [1, 3, 5, 15, 10, 30, 60, 240], "invalid unit"
         url = f'https://api.upbit.com/v1/candles/minutes/{unit}?'
-        query = f'market={market}&to={to}&count={count}'
+        cur_count = min(count, 200)
+        query = f'market={market}&to={to}&count={cur_count}'
+        df = self.get_df(url, query)
+        assert df is not None, "candle api error, count might be too large"
 
-        return self.get_df(url, query, ohlcv)
+        if count > 200:
+            last_to = df.loc[len(df)-1]["candle_date_time_utc"]
+            newdf = self.min_candle(unit=unit, market=market, to=last_to, count=count-199, ohlcv=False).loc[1:]
+            df = pd.concat([df, newdf], ignore_index=True)
+
+        return self.get_ohlcv_candle(df) if ohlcv else df
     
     def day_candle(self, market="KRW-BTC", to="", count=10, converting_price_unit="KRW", ohlcv=True):
         '''
@@ -108,9 +121,17 @@ class UpbitAPI:
         https://docs.upbit.com/reference/%EC%9D%BCday-%EC%BA%94%EB%93%A4-1
         '''
         url = 'https://api.upbit.com/v1/candles/days?'
-        query = f'market={market}&to={to}&count={count}&convertingPriceUnit={converting_price_unit}'
+        cur_count = min(count, 200)
+        query = f'market={market}&to={to}&count={cur_count}&convertingPriceUnit={converting_price_unit}'
+        df = self.get_df(url, query)
+        assert df is not None, "candle api error, count might be too large"
 
-        return self.get_df(url, query, ohlcv)
+        if count > 200:
+            last_to = df.loc[len(df)-1]["candle_date_time_utc"]
+            newdf = self.day_candle(market=market, to=last_to, count=count-199, converting_price_unit=converting_price_unit, ohlcv=False).loc[1:]
+            df = pd.concat([df, newdf], ignore_index=True)
+
+        return self.get_ohlcv_candle(df) if ohlcv else df
 
 
     def week_candle(self, market="KRW-BTC", to="", count=10, ohlcv=True):
@@ -120,9 +141,17 @@ class UpbitAPI:
         https://docs.upbit.com/reference/%EC%A3%BCweek-%EC%BA%94%EB%93%A4-1
         '''
         url = 'https://api.upbit.com/v1/candles/weeks?'
-        query = f'market={market}&to={to}&count={count}'
+        cur_count = min(count, 200)
+        query = f'market={market}&to={to}&count={cur_count}'
+        df = self.get_df(url, query)
+        assert df is not None, "candle api error, count might be too large"
 
-        return self.get_df(url, query, ohlcv)
+        if count > 200:
+            last_to = df.loc[len(df)-1]["candle_date_time_utc"]
+            newdf = self.week_candle(market=market, to=last_to, count=count-199, ohlcv=False).loc[1:]
+            df = pd.concat([df, newdf], ignore_index=True)
+
+        return self.get_ohlcv_candle(df) if ohlcv else df
 
 
     def month_candle(self, market="KRW-BTC", to="", count=10, ohlcv=True):
@@ -132,9 +161,17 @@ class UpbitAPI:
         https://docs.upbit.com/reference/%EC%9B%94month-%EC%BA%94%EB%93%A4-1
         '''
         url = 'https://api.upbit.com/v1/candles/months?'
-        query = f'market={market}&to={to}&count={count}'
+        cur_count = min(count, 200)
+        query = f'market={market}&to={to}&count={cur_count}'
+        df = self.get_df(url, query)
+        assert df is not None, "candle api error, count might be too large"
 
-        return self.get_df(url, query, ohlcv)
+        if count > 200:
+            last_to = df.loc[len(df)-1]["candle_date_time_utc"]
+            newdf = self.month_candle(market=market, to=last_to, count=count-199, ohlcv=False).loc[1:]
+            df = pd.concat([df, newdf], ignore_index=True)
+
+        return self.get_ohlcv_candle(df) if ohlcv else df
 
 
     def trade_ticks(self, market="KRW-BTC", to='', count=1, cursor='', days_ago=''):
