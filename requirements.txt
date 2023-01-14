@@ -1,0 +1,4 @@
+PyJWT
+uuid
+requests
+pandas
