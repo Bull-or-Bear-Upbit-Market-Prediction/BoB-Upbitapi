@@ -5,10 +5,7 @@ import requests
 import configparser
 import json
 import pandas as pd
-from tqdm import tqdm
 from ratelimit import limits, sleep_and_retry
-
-from time import sleep
 
 class UpbitAPI:
     def __init__(self, config_file='config.ini'):
@@ -39,23 +36,12 @@ class UpbitAPI:
 
         return authorization_token
 
-    def to_df(self, text):
-        '''
-        Pandas 데이터프레임으로 변환하는 내부메소드
-        '''
-        data = json.loads(text)
-
-        if len(data):
-            data = pd.DataFrame({key: [row[key] for row in data] for key in data[0].keys()})
-        else:
-            data = None
-        return data
 
     @sleep_and_retry
     @limits(calls=5, period=1)
-    def get_df(self, url, query, ohlcv=False):
+    def get_df(self, url, query, case="candle"):
         '''
-        요청헤더 생성하고 실제 api 요청하는 내부메소드
+        요청헤더 생성하고 실제 api 요청하여 결과를 pandas DataFrame으로 변환하는 내부메소드
         '''
         headers = {
             'accept': 'application/json',
@@ -64,7 +50,15 @@ class UpbitAPI:
         res = requests.get(url+query, headers=headers)
         assert res.status_code == 200, "requests fail"
 
-        return self.to_df(res.text)
+        data = json.loads(res.text)
+
+        if len(data):
+            data = pd.DataFrame({key: [row[key] for row in data] for key in data[0].keys()})
+            data = self.add_datetime64_cols(data, case)
+        else:
+            data = None
+
+        return data
 
 
     def get_ohlcv_candle(self, df):
@@ -74,7 +68,26 @@ class UpbitAPI:
         '''
         ohlcv = ["opening_price", "high_price", "low_price", "trade_price", "candle_acc_trade_price", "candle_acc_trade_volume"]
 
-        return df[ohlcv]
+        return df.set_index("datetime64_kst")[ohlcv]
+
+
+    def add_datetime64_cols(self, df, case):
+        '''
+        데이터에 datetime64 타입의 칼럼 추가
+        '''
+        if case == "candle":
+            df["datetime64_kst"] = pd.to_datetime(df["candle_date_time_kst"].apply(lambda x: x.replace('T', ' ')))
+            df["datetime64_utc"] = pd.to_datetime(df["candle_date_time_utc"].apply(lambda x: x.replace('T', ' ')))
+        elif case == "ticker":
+            df["datetime64_kst"] = df.apply(lambda x: x["trade_date_kst"]+x["trade_time_kst"], axis=1)
+            df["datetime64_utc"] = df.apply(lambda x: x["trade_date"]+x["trade_time"], axis=1)
+            df["datetime64_kst"] = pd.to_datetime(df["datetime64_kst"])
+            df["datetime64_utc"] = pd.to_datetime(df["datetime64_utc"])
+        elif case == "trade":
+            df["datetime64_utc"] = df.apply(lambda x: x["trade_date_utc"]+x["trade_time_utc"], axis=1)
+            df["datetime64_utc"] = pd.to_datetime(df["datetime64_utc"])
+
+        return df
 
 
     def market(self, keyword=None, is_details=False):
@@ -86,15 +99,14 @@ class UpbitAPI:
         query = f'isDetails={is_details}'
         url = 'https://api.upbit.com/v1/market/all?'
 
-        df = self.get_df(url, query)
+        df = self.get_df(url, query, None)
         if keyword is not None:
             return df[df["market"].apply(lambda x: keyword in x)]
         else:
             return df
-
     
 
-    def min_candle(self, unit=1, market="KRW-BTC", to="", count=10, ohlcv=True):
+    def min_candle(self, unit=1, market="KRW-BTC", to="", count=10, ohlcv=True, index=None):
         '''
         분봉 정보
 
@@ -109,11 +121,12 @@ class UpbitAPI:
 
         if count > 200:
             last_to = df.loc[len(df)-1]["candle_date_time_utc"]
-            newdf = self.min_candle(unit=unit, market=market, to=last_to, count=count-199, ohlcv=False).loc[1:]
+            newdf = self.min_candle(unit=unit, market=market, to=last_to, count=count-199, ohlcv=False).iloc[1:]
             df = pd.concat([df, newdf], ignore_index=True)
 
         return self.get_ohlcv_candle(df) if ohlcv else df
     
+
     def day_candle(self, market="KRW-BTC", to="", count=10, converting_price_unit="KRW", ohlcv=True):
         '''
         일봉 정보
@@ -183,7 +196,7 @@ class UpbitAPI:
         url = 'https://api.upbit.com/v1/trades/ticks'
         query = f'market={market}&to={to}&count={count}&cursor={cursor}&daysAgo={days_ago}'
 
-        return self.get_df(url, query)
+        return self.get_df(url, query, case="trade")
 
 
     def ticker(self, markets=["KRW-BTC"], ohlcv=True):
@@ -194,10 +207,10 @@ class UpbitAPI:
         '''
         url = 'https://api.upbit.com/v1/ticker?'
         query = f'markets={",".join(markets)}'
-        df = self.get_df(url, query, ohlcv=False)
+        df = self.get_df(url, query, case="ticker")
         cols = ["market", "opening_price", "high_price", "low_price", "trade_price", "prev_closing_price", "acc_trade_price_24h", "acc_trade_volume_24h"]
 
-        return df[cols] if ohlcv else df
+        return df.set_index("datetime64_kst")[cols] if ohlcv else df
 
 
     def orderbook(self, markets=["KRW-BTC"]):
@@ -208,7 +221,7 @@ class UpbitAPI:
         '''
         url = 'https://api.upbit.com/v1/orderbook?'
         query = f'markets={",".join(markets)}'
-        return self.get_df(url, query)
+        return self.get_df(url, query, case=None)
         
 
     def top_markets_by_trade_price(self, keyword="", k=-1, ohlcv=True):
@@ -216,7 +229,7 @@ class UpbitAPI:
         하루 기준 거래 대금이 가장 많은 시장 순으로 k개 출력하는 메소드, keyword로 마켓 필터
         '''
         markets = self.market(keyword)["market"].to_list()
-        df = self.ticker(markets=markets).sort_values(by=["acc_trade_price_24h"], ascending=False)
+        df = self.ticker(markets=markets, ohlcv=ohlcv).sort_values(by=["acc_trade_price_24h"], ascending=False)
         if k != -1:
             df = df.head(k)
         return df
