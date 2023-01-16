@@ -106,7 +106,7 @@ class UpbitAPI:
             return df
     
 
-    def min_candle(self, unit=1, market="KRW-BTC", to="", count=10, ohlcv=True, index=None):
+    def min_candle(self, unit=1, market="KRW-BTC", to="", count=10, ohlcv=True):
         '''
         분봉 정보
 
