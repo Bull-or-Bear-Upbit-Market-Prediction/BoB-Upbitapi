@@ -1,4 +1,5 @@
 __pycache__
 .ipynb_checkpoints
 config.ini
-test.ipynb
+**test**
+ratelimit
