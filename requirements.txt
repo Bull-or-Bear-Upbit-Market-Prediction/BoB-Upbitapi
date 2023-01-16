@@ -2,3 +2,4 @@ PyJWT
 uuid
 requests
 pandas
+ratelimit
