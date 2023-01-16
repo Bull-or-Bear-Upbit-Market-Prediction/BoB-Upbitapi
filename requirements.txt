@@ -3,3 +3,8 @@ uuid
 requests
 pandas
 ratelimit
+plotly
+ta
+nbformat
+scikit-learn
+tensorflow

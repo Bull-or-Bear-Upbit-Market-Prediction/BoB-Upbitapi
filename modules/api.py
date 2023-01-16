@@ -48,7 +48,7 @@ class UpbitAPI:
             'Authorization': self.generate_auth_token(query)
         }
         res = requests.get(url+query, headers=headers)
-        assert res.status_code == 200, "requests fail"
+        assert res.status_code == 200, f"{res.status_code} {res.text}"
 
         data = json.loads(res.text)
 
