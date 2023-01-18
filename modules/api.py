@@ -48,7 +48,7 @@ class UpbitAPI:
             'Authorization': self.generate_auth_token(query)
         }
         res = requests.get(url+query, headers=headers)
-        assert res.status_code == 200, "requests fail"
+        assert res.status_code == 200, f"{res.text}"
 
         data = json.loads(res.text)
 
@@ -117,10 +117,9 @@ class UpbitAPI:
         cur_count = min(count, 200)
         query = f'market={market}&to={to}&count={cur_count}'
         df = self.get_df(url, query)
-        assert df is not None, "candle api error, count might be too large"
 
-        if count > 200:
-            last_to = df.loc[len(df)-1]["candle_date_time_utc"]
+        if len(df) == 200 and count > 200:
+            last_to = df.iloc[len(df)-1]["candle_date_time_utc"]
             newdf = self.min_candle(unit=unit, market=market, to=last_to, count=count-199, ohlcv=False).iloc[1:]
             df = pd.concat([df, newdf], ignore_index=True)
 
@@ -139,8 +138,8 @@ class UpbitAPI:
         df = self.get_df(url, query)
         assert df is not None, "candle api error, count might be too large"
 
-        if count > 200:
-            last_to = df.loc[len(df)-1]["candle_date_time_utc"]
+        if len(df) == 200 and count > 200:
+            last_to = df.iloc[len(df)-1]["candle_date_time_utc"]
             newdf = self.day_candle(market=market, to=last_to, count=count-199, converting_price_unit=converting_price_unit, ohlcv=False).loc[1:]
             df = pd.concat([df, newdf], ignore_index=True)
 
@@ -157,10 +156,9 @@ class UpbitAPI:
         cur_count = min(count, 200)
         query = f'market={market}&to={to}&count={cur_count}'
         df = self.get_df(url, query)
-        assert df is not None, "candle api error, count might be too large"
 
-        if count > 200:
-            last_to = df.loc[len(df)-1]["candle_date_time_utc"]
+        if len(df) == 200 and count > 200:
+            last_to = df.iloc[len(df)-1]["candle_date_time_utc"]
             newdf = self.week_candle(market=market, to=last_to, count=count-199, ohlcv=False).loc[1:]
             df = pd.concat([df, newdf], ignore_index=True)
 
@@ -177,10 +175,9 @@ class UpbitAPI:
         cur_count = min(count, 200)
         query = f'market={market}&to={to}&count={cur_count}'
         df = self.get_df(url, query)
-        assert df is not None, "candle api error, count might be too large"
 
-        if count > 200:
-            last_to = df.loc[len(df)-1]["candle_date_time_utc"]
+        if len(df) == 200 and count > 200:
+            last_to = df.iloc[len(df)-1]["candle_date_time_utc"]
             newdf = self.month_candle(market=market, to=last_to, count=count-199, ohlcv=False).loc[1:]
             df = pd.concat([df, newdf], ignore_index=True)
 
